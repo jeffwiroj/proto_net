@@ -1,15 +1,12 @@
 import numpy as np
 from PIL import Image
+from collections import defaultdict
 
 #  Torch
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import torch.utils.data as data
-import torch.optim as optim
 
 # TorchVision
-import torchvision
 from torchvision.datasets import CIFAR100
 from torchvision import transforms as T
 
@@ -93,8 +90,120 @@ def get_dataset(seed: int = 0):
     return train_set, val_set, test_set
 
 
+class FewShotBatchSampler:
+    def __init__(
+        self,
+        dataset_targets,
+        N,
+        K,
+        include_query=False,
+        shuffle=True,
+        shuffle_once=False,
+    ):
+        """
+        Inputs:
+            dataset_targets - PyTorch tensor of the labels of the data elements.
+            N_way - Number of classes to sample per batch.
+            K_shot - Number of examples to sample per class in the batch.
+            include_query - If True, returns batch of size N_way*K_shot*2, which
+                            can be split into support and query set. Simplifies
+                            the implementation of sampling the same classes but
+                            distinct examples for support and query set.
+            shuffle - If True, examples and classes are newly shuffled in each
+                      iteration (for training)
+            shuffle_once - If True, examples and classes are shuffled once in
+                           the beginning, but kept constant across iterations
+                           (for validation)
+        """
+        super().__init__()
+        self.dataset_targets = dataset_targets
+        self.N_way = N
+        self.K_shot = K
+        self.shuffle = shuffle
+        self.include_query = include_query
+        if self.include_query:
+            self.K_shot *= 2
+        self.batch_size = self.N_way * self.K_shot  # Number of overall images per batch
+
+        # Organize examples by class
+        self.classes = torch.unique(self.dataset_targets).tolist()
+        self.num_classes = len(self.classes)
+        self.indices_per_class = {}
+        self.batches_per_class = (
+            {}
+        )  # Number of K-shot batches that each class can provide
+        for c in self.classes:
+            self.indices_per_class[c] = torch.where(self.dataset_targets == c)[0]
+            self.batches_per_class[c] = self.indices_per_class[c].shape[0] // self.K_shot
+
+        # Create a list of classes from which we select the N classes per batch
+        self.iterations = sum(self.batches_per_class.values()) // self.N_way
+        self.class_list = [
+            c for c in self.classes for _ in range(self.batches_per_class[c])
+        ]
+        if shuffle_once or self.shuffle:
+            self.shuffle_data()
+        else:
+            # For testing, we iterate over classes instead of shuffling them
+            sort_idxs = [
+                i + p * self.num_classes
+                for i, c in enumerate(self.classes)
+                for p in range(self.batches_per_class[c])
+            ]
+            self.class_list = np.array(self.class_list)[np.argsort(sort_idxs)].tolist()
+
+    def shuffle_data(self):
+        # Shuffle the examples per class
+        for c in self.classes:
+            perm = torch.randperm(self.indices_per_class[c].shape[0])
+            self.indices_per_class[c] = self.indices_per_class[c][perm]
+
+    def __iter__(self):
+        # Shuffle data
+        if self.shuffle:
+            self.shuffle_data()
+
+        # Sample few-shot batches
+        start_index = defaultdict(int)
+        for it in range(self.iterations):
+            class_batch = np.random.choice(self.classes, self.N_way, replace=False)
+            index_batch = []
+            for c in class_batch:
+                index_batch.extend(
+                    self.indices_per_class[c][
+                        start_index[c] : start_index[c] + self.K_shot
+                    ]
+                )
+                start_index[c] += self.K_shot
+            if self.include_query:
+                index_batch = index_batch[::2] + index_batch[1::2]
+            yield index_batch
+
+    def __len__(self):
+        return self.iterations
+
+
+def split_batch(imgs, targets):
+    support_imgs, query_imgs = imgs.chunk(2, dim=0)
+    support_targets, query_targets = targets.chunk(2, dim=0)
+    return support_imgs, query_imgs, support_targets, query_targets
+
+
 if __name__ == "__main__":
     import pdb
 
     pdb.set_trace()
     _, _, test_set = get_dataset()
+    dataloader = data.DataLoader(
+        test_set,
+        batch_sampler=FewShotBatchSampler(
+            test_set.targets,
+            include_query=True,
+            N=5,
+            K=2,
+            shuffle=True,
+            shuffle_once=True,
+        ),
+        num_workers=0,
+    )
+    pdb.set_trace()
