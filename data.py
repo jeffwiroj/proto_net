@@ -128,18 +128,18 @@ class FewShotBatchSampler:
         # Organize examples by class
         self.classes = torch.unique(self.dataset_targets).tolist()
         self.num_classes = len(self.classes)
-        self.indices_per_class = {}
-        self.batches_per_class = (
+        self.class_indices = {}
+        self.class_num_batches = (
             {}
         )  # Number of K-shot batches that each class can provide
         for c in self.classes:
-            self.indices_per_class[c] = torch.where(self.dataset_targets == c)[0]
-            self.batches_per_class[c] = self.indices_per_class[c].shape[0] // self.K_shot
+            self.class_indices[c] = torch.where(self.dataset_targets == c)[0]
+            self.class_num_batches[c] = self.class_indices[c].shape[0] // self.K_shot
 
         # Create a list of classes from which we select the N classes per batch
-        self.iterations = sum(self.batches_per_class.values()) // self.N_way
+        self.iterations = sum(self.class_num_batches.values()) // (self.N_way)
         self.class_list = [
-            c for c in self.classes for _ in range(self.batches_per_class[c])
+            c for c in self.classes for _ in range(self.class_num_batches[c])
         ]
         if shuffle_once or self.shuffle:
             self.shuffle_data()
@@ -155,8 +155,8 @@ class FewShotBatchSampler:
     def shuffle_data(self):
         # Shuffle the examples per class
         for c in self.classes:
-            perm = torch.randperm(self.indices_per_class[c].shape[0])
-            self.indices_per_class[c] = self.indices_per_class[c][perm]
+            perm = torch.randperm(self.class_indices[c].shape[0])
+            self.class_indices[c] = self.class_indices[c][perm]
 
     def __iter__(self):
         # Shuffle data
@@ -164,17 +164,11 @@ class FewShotBatchSampler:
             self.shuffle_data()
 
         # Sample few-shot batches
-        start_index = defaultdict(int)
-        for it in range(self.iterations):
+        for _ in range(self.iterations):
             class_batch = np.random.choice(self.classes, self.N_way, replace=False)
             index_batch = []
             for c in class_batch:
-                index_batch.extend(
-                    self.indices_per_class[c][
-                        start_index[c] : start_index[c] + self.K_shot
-                    ]
-                )
-                start_index[c] += self.K_shot
+                index_batch.extend(self.class_indices[c][: self.K_shot])
             if self.include_query:
                 index_batch = index_batch[::2] + index_batch[1::2]
             yield index_batch
