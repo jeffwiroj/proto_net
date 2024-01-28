@@ -6,7 +6,7 @@ import torch.nn as nn
 import timm
 import torch.nn.functional as F
 
-from .data import split_batch
+from data import split_batch
 
 
 def _init_weights(m):
