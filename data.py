@@ -91,15 +91,7 @@ def get_dataset(seed: int = 0):
 
 
 class FewShotBatchSampler:
-    def __init__(
-        self,
-        dataset_targets,
-        N,
-        K,
-        include_query=False,
-        shuffle=True,
-        shuffle_once=False,
-    ):
+    def __init__(self, dataset_targets, N, K, include_query=False, shuffle=True):
         """
         Inputs:
             dataset_targets - PyTorch tensor of the labels of the data elements.
@@ -141,16 +133,6 @@ class FewShotBatchSampler:
         self.class_list = [
             c for c in self.classes for _ in range(self.class_num_batches[c])
         ]
-        if shuffle_once or self.shuffle:
-            self.shuffle_data()
-        else:
-            # For testing, we iterate over classes instead of shuffling them
-            sort_idxs = [
-                i + p * self.num_classes
-                for i, c in enumerate(self.classes)
-                for p in range(self.batches_per_class[c])
-            ]
-            self.class_list = np.array(self.class_list)[np.argsort(sort_idxs)].tolist()
 
     def shuffle_data(self):
         # Shuffle the examples per class
