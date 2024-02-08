@@ -9,37 +9,30 @@ import torchvision
 from data import split_batch
 
 
-def _init_weights(m):
-    if isinstance(m, nn.Linear):
-        fan_out = m.weight.size(0)  # fan-out
-        fan_in = 0
-        init_range = 1.0 / math.sqrt(fan_in + fan_out)
-        nn.init.uniform_(m.weight, -init_range, init_range)
-        nn.init.zeros_(m.bias)
-
-
-def get_effnet(output_size):
-    model = timm.create_model("efficientnet_b0", pretrained=False)
-    model.classifier = nn.Linear(in_features=1280, out_features=output_size)
-    model.apply(_init_weights)
+def get_resnet(output_size):
+    model = torchvision.models.resnet18(weights=None)
+    model.fc = nn.Linear(1000,output_size)
     return model
 
 
-def get_convnet(output_size):
+def get_densenet(output_size):
     convnet = torchvision.models.DenseNet(
         growth_rate=32,
         block_config=(6, 6, 6, 6),
         bn_size=2,
         num_init_features=64,
-        num_classes=output_size,  # Output dimensionality
+        num_classes=output_size,  
     )
     return convnet
 
 
 class ProtoNet(nn.Module):
-    def __init__(self, proto_dim):
+    def __init__(self,model_type="resnet",proto_dim:int=100):
         super().__init__()
-        self.model = get_convnet(proto_dim)  # get_effnet(proto_dim)
+        if model_type == "resnet":
+            self.model = get_resnet(proto_dim)
+        else:
+            self.model= get_densenet(proto_dim)
 
     @staticmethod
     def calculate_prototypes(features, targets):
